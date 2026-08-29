@@ -12,7 +12,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from ml.training.run_dbscan import detect_hotspots, summarize
+from ml.training.run_dbscan import detect_hotspots, summarize  # noqa: E402  # noqa: E402
 
 
 router = APIRouter(

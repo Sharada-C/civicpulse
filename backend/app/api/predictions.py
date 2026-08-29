@@ -13,6 +13,7 @@ class SeverityInput(BaseModel):
     repeat_count: int = Field(default=0, ge=0)
     description_length: int = Field(default=0, ge=0)
 
+
 class ResolutionInput(BaseModel):
     category: str
     department: str
