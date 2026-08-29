@@ -3,7 +3,8 @@ Trains and compares Logistic Regression, Random Forest, and XGBoost
 for severity classification.
 
 Usage:
-    python ml/training/train_severity.py --data data/processed/complaints_features.csv
+    python ml/training/train_severity.py \
+        --data data/processed/complaints_features.csv
 """
 
 import argparse
@@ -12,11 +13,12 @@ import os
 import joblib
 import pandas as pd
 
+from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import classification_report
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import LabelEncoder, StandardScaler
+from sklearn.preprocessing import LabelEncoder, OneHotEncoder, StandardScaler
 
 try:
     from xgboost import XGBClassifier
@@ -28,40 +30,20 @@ except Exception:
     )
 
 
-FEATURE_COLUMNS = [
-    "category_encoded",
-    "ward_encoded",
+CATEGORICAL_FEATURES = [
+    "category",
+]
+
+NUMERIC_FEATURES = [
     "repeat_count",
+    "category_30d_count",
+    "ward_30d_count",
+    "ward_workload",
     "description_length",
     "hour_of_day",
 ]
 
 TARGET_COLUMN = "severity"
-
-
-def prepare_features(df: pd.DataFrame):
-    """
-    Encode categorical input features.
-
-    Returns:
-        df
-        category_encoder
-        ward_encoder
-    """
-    df = df.copy()
-
-    category_encoder = LabelEncoder()
-    ward_encoder = LabelEncoder()
-
-    df["category_encoded"] = category_encoder.fit_transform(
-        df["category"]
-    )
-
-    df["ward_encoded"] = ward_encoder.fit_transform(
-        df["ward"]
-    )
-
-    return df, category_encoder, ward_encoder
 
 
 def build_models():
@@ -70,12 +52,11 @@ def build_models():
     """
     models = {
         "logistic_regression": LogisticRegression(
-            max_iter=1000
+            max_iter=2000,
         ),
-
         "random_forest": RandomForestClassifier(
             n_estimators=200,
-            random_state=42
+            random_state=42,
         ),
     }
 
@@ -93,7 +74,7 @@ def build_models():
 
 def main(
     data_path: str,
-    out_dir: str = "ml/models"
+    out_dir: str = "ml/models",
 ):
     print(f"Reading {data_path}...")
 
@@ -102,23 +83,18 @@ def main(
     print(f"Loaded {len(df)} complaints.")
 
     # ---------------------------------------------------------
-    # Feature preparation
+    # Features
     # ---------------------------------------------------------
-    df, category_encoder, ward_encoder = prepare_features(df)
 
-    X = df[FEATURE_COLUMNS]
+    X = df[
+        CATEGORICAL_FEATURES
+        + NUMERIC_FEATURES
+    ]
 
     # ---------------------------------------------------------
-    # Encode TARGET labels
-    #
-    # XGBoost requires numeric class labels.
-    #
-    # Example:
-    # CRITICAL -> 0
-    # HIGH     -> 1
-    # LOW      -> 2
-    # MEDIUM   -> 3
+    # Encode target
     # ---------------------------------------------------------
+
     target_encoder = LabelEncoder()
 
     y = target_encoder.fit_transform(
@@ -128,12 +104,16 @@ def main(
     class_names = target_encoder.classes_
 
     print("\nSeverity classes:")
+
     for encoded_value, class_name in enumerate(class_names):
-        print(f"  {class_name} -> {encoded_value}")
+        print(
+            f"  {class_name} -> {encoded_value}"
+        )
 
     # ---------------------------------------------------------
     # Train/test split
     # ---------------------------------------------------------
+
     X_train, X_test, y_train, y_test = train_test_split(
         X,
         y,
@@ -142,24 +122,75 @@ def main(
         stratify=y,
     )
 
-    # ---------------------------------------------------------
-    # Scaling for Logistic Regression
-    # ---------------------------------------------------------
-    scaler = StandardScaler()
+    print(
+        f"\nTraining rows: {len(X_train)}"
+    )
 
-    X_train_scaled = scaler.fit_transform(X_train)
-    X_test_scaled = scaler.transform(X_test)
+    print(
+        f"Testing rows: {len(X_test)}"
+    )
+
+    # ---------------------------------------------------------
+    # Preprocessing
+    #
+    # category is one-hot encoded because it is nominal.
+    # repeat_count remains numeric.
+    # ---------------------------------------------------------
+
+    preprocessor = ColumnTransformer(
+        transformers=[
+            (
+                "category",
+                OneHotEncoder(
+                    handle_unknown="ignore"
+                ),
+                CATEGORICAL_FEATURES,
+            ),
+            (
+                "numeric",
+                "passthrough",
+                NUMERIC_FEATURES,
+            ),
+        ]
+    )
+
+    X_train_processed = preprocessor.fit_transform(
+        X_train
+    )
+
+    X_test_processed = preprocessor.transform(
+        X_test
+    )
+
+    scaler = StandardScaler(with_mean=False)
+
+    X_train_scaled = scaler.fit_transform(X_train_processed)
+    X_test_scaled = scaler.transform(X_test_processed)
+
+    print(
+        "\nProcessed feature shape:"
+    )
+
+    print(
+        f"  Training: {X_train_processed.shape}"
+    )
+
+    print(
+        f"  Testing : {X_test_processed.shape}"
+    )
 
     # ---------------------------------------------------------
     # Build models
     # ---------------------------------------------------------
+
     models = build_models()
 
     results = {}
 
     # ---------------------------------------------------------
-    # Train and evaluate each model
+    # Train and evaluate models
     # ---------------------------------------------------------
+
     for name, model in models.items():
 
         print(f"\n{'=' * 60}")
@@ -167,11 +198,9 @@ def main(
         print(f"{'=' * 60}")
 
         if name == "logistic_regression":
-
-            # Logistic Regression works better with scaled features.
             model.fit(
                 X_train_scaled,
-                y_train
+                y_train,
             )
 
             preds = model.predict(
@@ -179,20 +208,19 @@ def main(
             )
 
         else:
-
-            # Random Forest and XGBoost use the original features.
             model.fit(
-                X_train,
-                y_train
+                X_train_processed,
+                y_train,
             )
 
             preds = model.predict(
-                X_test
+                X_test_processed
             )
 
         # -----------------------------------------------------
         # Classification report
         # -----------------------------------------------------
+
         report = classification_report(
             y_test,
             preds,
@@ -214,110 +242,132 @@ def main(
 
         weighted_f1 = report["weighted avg"]["f1-score"]
 
-        results[name] = weighted_f1
+        macro_f1 = report["macro avg"]["f1-score"]
+
+        results[name] = {
+            "weighted_f1": weighted_f1,
+            "macro_f1": macro_f1,
+        }
 
         print(
             f"Weighted F1: {weighted_f1:.3f}"
         )
 
+        print(
+            f"Macro F1:    {macro_f1:.3f}"
+        )
+
     # ---------------------------------------------------------
     # Compare models
     # ---------------------------------------------------------
-    print("\n" + "=" * 60)
-    print("MODEL COMPARISON")
-    print("=" * 60)
 
-    for name, score in results.items():
+    print(
+        "\n" + "=" * 60
+    )
+
+    print(
+        "MODEL COMPARISON"
+    )
+
+    print(
+        "=" * 60
+    )
+
+    for name, metrics in results.items():
+
         print(
-            f"{name:25s} Weighted F1 = {score:.3f}"
+            f"{name:25s}"
+            f" Weighted F1 = {metrics['weighted_f1']:.3f}"
+            f" | Macro F1 = {metrics['macro_f1']:.3f}"
         )
 
     # ---------------------------------------------------------
     # Select best model
+    #
+    # Weighted F1 is used as the primary metric.
     # ---------------------------------------------------------
+
     best_model_name = max(
         results,
-        key=results.get
+        key=lambda name: results[name]["weighted_f1"],
     )
 
-    best_score = results[best_model_name]
+    best_score = results[
+        best_model_name
+    ]["weighted_f1"]
 
-    print("\n" + "=" * 60)
+    print(
+        "\n" + "=" * 60
+    )
+
     print(
         f"Best model by weighted F1: "
         f"{best_model_name} ({best_score:.3f})"
     )
-    print("=" * 60)
 
-    best_model = models[best_model_name]
+    print(
+        "=" * 60
+    )
+
+    best_model = models[
+        best_model_name
+    ]
 
     # ---------------------------------------------------------
     # Create output directory
     # ---------------------------------------------------------
+
     os.makedirs(
         out_dir,
-        exist_ok=True
+        exist_ok=True,
     )
 
     # ---------------------------------------------------------
-    # Save model and preprocessing objects
+    # Save model
     # ---------------------------------------------------------
+
     joblib.dump(
         best_model,
         os.path.join(
             out_dir,
-            "severity_model.joblib"
+            "severity_model.joblib",
         ),
     )
 
+    # ---------------------------------------------------------
+    # Save preprocessing pipeline
+    # ---------------------------------------------------------
+
     joblib.dump(
-        scaler,
+        preprocessor,
         os.path.join(
             out_dir,
-            "severity_scaler.joblib"
+            "severity_preprocessor.joblib",
         ),
     )
 
-    joblib.dump(
-        category_encoder,
-        os.path.join(
-            out_dir,
-            "category_encoder.joblib"
-        ),
-    )
-
-    joblib.dump(
-        ward_encoder,
-        os.path.join(
-            out_dir,
-            "ward_encoder.joblib"
-        ),
-    )
+    # ---------------------------------------------------------
+    # Save target encoder
+    # ---------------------------------------------------------
 
     joblib.dump(
         target_encoder,
         os.path.join(
             out_dir,
-            "severity_target_encoder.joblib"
+            "severity_target_encoder.joblib",
         ),
     )
 
-    print("\nSaved files:")
+    print(
+        "\nSaved files:"
+    )
 
     print(
         f"  {out_dir}/severity_model.joblib"
     )
 
     print(
-        f"  {out_dir}/severity_scaler.joblib"
-    )
-
-    print(
-        f"  {out_dir}/category_encoder.joblib"
-    )
-
-    print(
-        f"  {out_dir}/ward_encoder.joblib"
+        f"  {out_dir}/severity_preprocessor.joblib"
     )
 
     print(
@@ -345,5 +395,5 @@ if __name__ == "__main__":
 
     main(
         args.data,
-        args.out_dir
+        args.out_dir,
     )

@@ -22,9 +22,7 @@ _MODEL_DIR = os.path.abspath(
 
 
 _severity_model = None
-_severity_scaler = None
-_category_encoder = None
-_ward_encoder = None
+_severity_preprocessor = None
 _severity_target_encoder = None
 
 _resolution_model = None
@@ -47,9 +45,7 @@ def _load_model(filename: str):
 def predict_severity(features: dict) -> str:
 
     global _severity_model
-    global _severity_scaler
-    global _category_encoder
-    global _ward_encoder
+    global _severity_preprocessor
     global _severity_target_encoder
 
     if _severity_model is None:
@@ -58,16 +54,8 @@ def predict_severity(features: dict) -> str:
             "severity_model.joblib"
         )
 
-        _severity_scaler = _load_model(
-            "severity_scaler.joblib"
-        )
-
-        _category_encoder = _load_model(
-            "category_encoder.joblib"
-        )
-
-        _ward_encoder = _load_model(
-            "ward_encoder.joblib"
+        _severity_preprocessor = _load_model(
+            "severity_preprocessor.joblib"
         )
 
         _severity_target_encoder = _load_model(
@@ -78,7 +66,11 @@ def predict_severity(features: dict) -> str:
     # Fallback if trained model isn't available
     # --------------------------------------------------------
 
-    if _severity_model is None:
+    if (
+        _severity_model is None
+        or _severity_preprocessor is None
+        or _severity_target_encoder is None
+    ):
 
         if features.get("repeat_count", 0) >= 5:
             return "CRITICAL"
@@ -89,98 +81,75 @@ def predict_severity(features: dict) -> str:
         return "MEDIUM"
 
     # --------------------------------------------------------
-    # Encode categorical features exactly as training
-    # --------------------------------------------------------
-
-    category = features.get(
-        "category",
-        "POTHOLE",
-    )
-
-    ward = features.get(
-        "ward_code",
-        "W001",
-    )
-
-    try:
-
-        category_encoded = (
-            _category_encoder.transform(
-                [category]
-            )[0]
-        )
-
-    except ValueError:
-
-        category_encoded = 0
-
-    try:
-
-        ward_encoded = (
-            _ward_encoder.transform(
-                [ward]
-            )[0]
-        )
-
-    except ValueError:
-
-        ward_encoded = 0
-
-    # --------------------------------------------------------
-    # Build feature vector
+    # Build features
+    #
+    # These MUST match train_severity.py
     # --------------------------------------------------------
 
     X = pd.DataFrame(
-        [[
-            category_encoded,
-            ward_encoded,
-            features.get("repeat_count", 0),
-            features.get("description_length", 0),
-            features.get("hour_of_day", 0),
-        ]],
-        columns=[
-            "category_encoded",
-            "ward_encoded",
-            "repeat_count",
-            "description_length",
-            "hour_of_day",
-        ],
+        [{
+            "category": features.get(
+                "category",
+                "POTHOLE",
+            ),
+
+            "repeat_count": features.get(
+                "repeat_count",
+                0,
+            ),
+
+            "category_30d_count": features.get(
+                "category_30d_count",
+                0,
+            ),
+
+            "ward_30d_count": features.get(
+                "ward_30d_count",
+                0,
+            ),
+
+            "ward_workload": features.get(
+                "ward_workload",
+                0,
+            ),
+
+            "description_length": features.get(
+                "description_length",
+                0,
+            ),
+
+            "hour_of_day": features.get(
+                "hour_of_day",
+                0,
+            ),
+        }]
     )
 
     # --------------------------------------------------------
-    # Logistic Regression needs scaling.
-    # Other models don't.
+    # Apply the SAME preprocessing used during training
     # --------------------------------------------------------
 
-    model_name = type(
-        _severity_model
-    ).__name__
+    X_processed = (
+        _severity_preprocessor.transform(X)
+    )
 
-    if model_name == "LogisticRegression":
-
-        X_input = _severity_scaler.transform(X)
-
-    else:
-
-        X_input = X
+    # --------------------------------------------------------
+    # Predict
+    # --------------------------------------------------------
 
     prediction = _severity_model.predict(
-        X_input
+        X_processed
     )[0]
 
     # --------------------------------------------------------
     # Decode target
     # --------------------------------------------------------
 
-    if _severity_target_encoder is not None:
-
-        return str(
-            _severity_target_encoder.inverse_transform(
-                [int(prediction)]
-            )[0]
-        )
-
-    return str(prediction)
+    return str(
+        _severity_target_encoder.inverse_transform(
+            [int(prediction)]
+        )[0]
+    )
 
 
 # ============================================================
