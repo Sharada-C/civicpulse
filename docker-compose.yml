@@ -1,0 +1,98 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: civicpulse_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-civicpulse}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      POSTGRES_DB: ${POSTGRES_DB:-civicpulse}
+    ports:
+      - "5433:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ./sql/init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-civicpulse}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: ../docker/Dockerfile.backend
+    container_name: civicpulse_backend
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg2://civicpulse:changeme@postgres:5432/civicpulse
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+      - ./ml:/app/ml
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.0
+    container_name: civicpulse_zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+    ports:
+      - "2181:2181"
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: civicpulse_kafka
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    ports:
+      - "9092:9092"
+
+  airflow:
+    image: apache/airflow:2.9.1-python3.11
+    container_name: civicpulse_airflow
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: ${DATABASE_URL}
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./pipelines:/opt/airflow/pipelines
+    ports:
+      - "8080:8080"
+    command: standalone
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: civicpulse_ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+
+volumes:
+  pg_data:
+  ollama_data:
+
+# Bring up just the database + backend for day-to-day API work:
+#   docker compose up -d postgres backend
+# Bring up everything (Kafka/Airflow/Ollama included) when working on those modules:
+#   docker compose up -d
