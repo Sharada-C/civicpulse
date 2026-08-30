@@ -1,72 +1,86 @@
 # CivicPulse
 
-Open-source urban infrastructure intelligence platform. Ingests civic complaints and public datasets, detects problem hotspots, predicts severity and resolution time, and helps authorities prioritize limited resources.
+CivicPulse is an urban infrastructure intelligence platform that analyzes civic complaints, identifies problem hotspots, predicts complaint severity and resolution time, and helps prioritize limited municipal resources.
 
-> Status: scaffold generated from project blueprint. See `docs/roadmap.md` for build order and `docs/architecture.md` for system design.
+The project combines data engineering, machine learning, PostgreSQL analytics, REST APIs, Docker, Apache Airflow, and Power BI to turn raw civic complaint data into actionable insights.
 
-## 1. Problem
+---
 
-Cities receive more infrastructure complaints than they can immediately resolve. CivicPulse answers: which problems should be addressed first, where, and why?
+## 1. Problem Statement
+
+Cities receive large volumes of complaints related to infrastructure issues such as:
+
+- Garbage
+- Water leaks
+- Drainage
+- Illegal parking
+- Streetlights
+- Potholes
+
+Simply counting complaints does not provide enough information to determine which problems should be addressed first.
+
+CivicPulse addresses this by combining:
+
+- Historical complaint data
+- Geographic information
+- Complaint severity
+- Resolution performance
+- Repeat complaint patterns
+- Machine-learning predictions
+- Explainable priority scoring
+
+The goal is to answer:
+
+> **Which civic problems should be addressed first, where are they occurring, and why?**
+
+---
 
 ## 2. Architecture
 
-```
-Public Data / CSV --> Data Ingestion (Python) --> Kafka --> Airflow (ETL orchestration)
-    --> PySpark (transform) --> PostgreSQL (OLTP + warehouse)
-        --> ML Models (severity, resolution time, hotspots)
-        --> FastAPI Backend (REST APIs, auth)
-            --> Intelligence Layer --> Power BI Dashboard
-                                    --> Local LLM AI Analyst (Ollama, tool-grounded)
-```
+```text
+                         CivicPulse
+                             |
+              +--------------+--------------+
+              |                             |
+        Data / ETL Pipeline             ML Pipeline
+              |                             |
+              v                             v
+        Source Complaint Data       Severity Prediction
+              |                     Resolution Prediction
+              v                             |
+        Transformation                       |
+              |                             |
+              +-------------+---------------+
+                            |
+                            v
+                    PostgreSQL Database
+                    +------------------+
+                    |     OLTP Data    |
+                    +------------------+
+                            |
+                            v
+                    Analytical Warehouse
+                       Star Schema
+                            |
+                +-----------+-----------+
+                |                       |
+                v                       v
+          SQL Analytics          Priority Engine
+                |                       |
+                +-----------+-----------+
+                            |
+                            v
+                     FastAPI Backend
+                            |
+                     +------+------+
+                     |             |
+                     v             v
+                 REST APIs     Power BI
+                              Dashboard
 
-Full diagram and rationale: `docs/architecture.md`.
-
-## 3. Tech stack
-
-Python, PostgreSQL, Pandas, FastAPI, SQLAlchemy, Pydantic, GeoPandas, scikit-learn, XGBoost, Power BI, Apache Airflow, PySpark, Apache Kafka, Ollama, Docker, GitHub Actions.
-
-No paid APIs anywhere in the stack.
-
-## 4. Repository layout
-
-```
-civicpulse/
-├── backend/        FastAPI app (api / models / schemas / services / repositories / ml / db / core)
-├── data/           raw + processed data (synthetic data clearly labeled)
-├── pipelines/       ingestion / transformation / validation scripts
-├── airflow/dags/    orchestration DAGs
-├── spark/jobs/      PySpark transformation jobs
-├── kafka/           producers + consumers for the real-time complaint stream
-├── ml/              training, inference, saved models
-├── sql/             OLTP schema, warehouse star schema, analytics queries
-├── dashboard/powerbi/  Power BI dashboard notes/exports
-├── ai/              tool-grounded LLM analyst: prompts + callable tools
-├── docker/          Dockerfiles
-└── docs/            architecture, ERD, roadmap
-```
-
-## 5. Getting started (local)
-
-```bash
-cp .env.example .env
-docker compose up -d postgres        # start just the database first
-cd backend
-pip install -r requirements.txt
-uvicorn app.main:app --reload
-```
-
-Visit `http://localhost:8000/docs` for the interactive API.
-
-To bring up the full stack (Postgres + Kafka + Airflow + Ollama):
-
-```bash
-docker compose up -d
-```
-
-## 6. Build order
-
-See `docs/roadmap.md` — the project is intentionally staged so early milestones (DB schema + SQL analytics, then FastAPI) are already interview-presentable before Kafka/Spark/Airflow are added.
-
-## 7. What this is not
-
-No paid LLM APIs, no Kubernetes, no unnecessary microservices, no framework added without a stated reason. See `docs/architecture.md` §"Decisions we didn't make" for the reasoning.
+Supporting Services:
+- Apache Airflow
+- Apache Kafka
+- PySpark
+- Ollama
+- Docker Compose
