@@ -87,6 +87,55 @@ class ResolutionInput(BaseModel):
     )
 
 
+class PredictionInput(BaseModel):
+    category: str
+    department: str
+    ward_code: str
+
+    repeat_count: int = Field(
+        default=0,
+        ge=0,
+    )
+
+    category_30d_count: int = Field(
+        default=0,
+        ge=0,
+    )
+
+    ward_30d_count: int = Field(
+        default=0,
+        ge=0,
+    )
+
+    ward_workload: int = Field(
+        default=0,
+        ge=0,
+    )
+
+    description_length: int = Field(
+        default=0,
+        ge=0,
+    )
+
+    hour_of_day: int = Field(
+        default=0,
+        ge=0,
+        le=23,
+    )
+
+    day_of_week: int = Field(
+        default=0,
+        ge=0,
+        le=6,
+    )
+
+    month: int = Field(
+        default=1,
+        ge=1,
+        le=12,
+    )
+
+
 @router.post("/severity")
 def severity(payload: SeverityInput):
     result = predict_severity(
@@ -106,4 +155,24 @@ def resolution_time(payload: ResolutionInput):
 
     return {
         "predicted_resolution_days": days
+    }
+
+
+@router.post("")
+def predictions(payload: PredictionInput):
+    features = payload.model_dump()
+
+    predicted_severity = predict_severity(
+        features
+    )
+
+    features["severity"] = predicted_severity
+
+    predicted_resolution_days = predict_resolution_time(
+        features
+    )
+
+    return {
+        "predicted_severity": predicted_severity,
+        "predicted_resolution_days": predicted_resolution_days,
     }

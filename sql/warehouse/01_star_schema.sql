@@ -36,16 +36,18 @@ CREATE TABLE IF NOT EXISTS dim_department (
 );
 
 CREATE TABLE IF NOT EXISTS fact_complaints (
-    complaint_key       SERIAL PRIMARY KEY,
-    complaint_id        INTEGER NOT NULL,          -- natural key back to OLTP complaints
-    date_key             INTEGER NOT NULL REFERENCES dim_date(date_key),
-    location_key          INTEGER NOT NULL REFERENCES dim_location(location_key),
-    category_key           INTEGER NOT NULL REFERENCES dim_category(category_key),
-    department_key          INTEGER REFERENCES dim_department(department_key),
-    severity_score          NUMERIC(3,2),           -- normalized 0-1 for use in priority engine
-    resolution_time_days    NUMERIC(6,2),
-    status                  VARCHAR(20) NOT NULL,
-    is_repeat_complaint     BOOLEAN NOT NULL DEFAULT FALSE
+    complaint_key            SERIAL PRIMARY KEY,
+    complaint_id             INTEGER NOT NULL,
+    date_key                 INTEGER NOT NULL REFERENCES dim_date(date_key),
+    location_key             INTEGER NOT NULL REFERENCES dim_location(location_key),
+    category_key             INTEGER NOT NULL REFERENCES dim_category(category_key),
+    department_key           INTEGER REFERENCES dim_department(department_key),
+    severity_score           NUMERIC(3,2),
+    resolution_time_days     NUMERIC(6,2),
+    predicted_severity       VARCHAR(20),
+    predicted_resolution_days NUMERIC(6,2),
+    status                   VARCHAR(20) NOT NULL,
+    is_repeat_complaint      BOOLEAN NOT NULL DEFAULT FALSE
 );
 
 CREATE INDEX IF NOT EXISTS idx_fact_date ON fact_complaints(date_key);
